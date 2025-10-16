@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ session_name }}</title>
+    <style>
+        body { font-family: Arial; background: #0d1117; color: #eee; text-align: center; padding: 40px; }
+        table { margin: auto; border-collapse: collapse; width: 80%; }
+        th, td { border: 1px solid #333; padding: 10px; }
+        th { background: #161b22; color: #00c2ff; }
+        td { background: #111; }
+    </style>
+</head>
+<body>
+    <h1>{{ session_name }}</h1>
+    {% for exercise, sets in exercises.items() %}
+        <h2>{{ exercise }}</h2>
+        <table>
+            <tr><th>Set</th><th>Weight (kg)</th><th>Reps</th></tr>
+            {% for s in sets %}
+                <tr><td>{{ loop.index }}</td><td>{{ s[0] }}</td><td>{{ s[1] }}</td></tr>
+            {% endfor %}
+        </table>
+    {% endfor %}
+    <br>
+    <a href="/history" style="color:#00c2ff;">← Back to History</a>
+</body>
+</html>

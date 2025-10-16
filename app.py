@@ -1,11 +1,16 @@
 from flask import Flask, render_template, request, redirect, url_for
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
+from urllib.parse import unquote
 
 app = Flask(__name__)
 
 FILENAME = "workouts.csv"
+SESSION_FILE = "current_session.txt"
+
+# Use seconds everywhere so sessions are always unique
+DT_TS_FMT = "%Y-%m-%d %H:%M:%S"   # for row timestamps and for the datetime prefix in session names
 
 COMPOUND_LIFTS = [
     # --- Bench Variations ---
@@ -63,13 +68,9 @@ COMPOUND_LIFTS = [
 ]
 
 
-DT_FMT = "%Y-%m-%d %H:%M"
-
-
 # ---------------- Helper Functions ---------------- #
 
 def get_target_reps(exercise: str) -> int:
-    """Return target reps based on whether it's a compound or isolation lift."""
     for lift in COMPOUND_LIFTS:
         if lift.lower() == exercise.lower():
             return 8
@@ -77,184 +78,157 @@ def get_target_reps(exercise: str) -> int:
 
 
 def read_rows():
-    """Read CSV -> list of dict rows with parsed datetime."""
+    """
+    Read CSV -> list of dict rows.
+    Expected schema: timestamp, session_name, exercise, weight, reps
+    """
     rows = []
-    try:
-        with open(FILENAME, "r", newline="") as f:
-            reader = csv.reader(f)
-            for r in reader:
-                if len(r) != 4:
-                    continue
-                ts, ex, w, reps = r
-                try:
-                    rows.append({
-                        "ts": datetime.strptime(ts, DT_FMT),
-                        "exercise": ex.strip(),
-                        "weight": float(w),
-                        "reps": int(reps),
-                        "ts_str": ts
-                    })
-                except Exception:
-                    continue
-    except FileNotFoundError:
-        pass
+    if not os.path.exists(FILENAME):
+        return rows
+    with open(FILENAME, newline="") as f:
+        reader = csv.reader(f)
+        for r in reader:
+            if len(r) < 5:
+                # skip malformed/old rows
+                continue
+            ts, session_name, ex, w, reps = r[:5]
+            try:
+                rows.append({
+                    "ts": datetime.strptime(ts, DT_TS_FMT),
+                    "session": session_name.strip(),
+                    "exercise": ex.strip(),
+                    "weight": float(w),
+                    "reps": int(reps)
+                })
+            except Exception:
+                # skip any bad row
+                continue
     return rows
 
 
-def find_previous_session_ts(rows, exercise: str, current_session_ts: datetime):
-    """Find the most recent session timestamp for exercise before this one."""
-    ts_candidates = sorted(
-        {r["ts"] for r in rows if r["exercise"].lower() == exercise.lower() and r["ts"] < current_session_ts}
-    )
-    return ts_candidates[-1] if ts_candidates else None
-
-
-def group_session_top_weight(rows, exercise: str, session_ts: datetime):
-    """Return top weight for the given exercise at a specific session time."""
-    same_session = [r for r in rows if r["exercise"].lower() == exercise.lower() and r["ts"] == session_ts]
-    return max((r["weight"] for r in same_session), default=None)
-
-
-def find_last_weight(rows, exercise: str):
-    """Return last logged weight for an exercise."""
-    for r in sorted(rows, key=lambda x: x["ts"], reverse=True):
-        if r["exercise"].lower() == exercise.lower():
-            return r["weight"]
+def get_current_session():
+    if os.path.exists(SESSION_FILE):
+        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip() or None
     return None
 
 
-def round_to_step(x: float, step: float = 0.5) -> float:
-    """Round to nearest step (default 0.5kg)."""
-    return round(x / step) * step
+def set_current_session(workout_title: str):
+    """
+    Create a unique session name with full timestamp prefix, e.g.:
+    '2025-10-16 18:42:05 | Push Day'
+    """
+    started = datetime.now().strftime(DT_TS_FMT)
+    session_name = f"{started} | {workout_title}"
+    with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        f.write(session_name)
+    return session_name
+
+
+def clear_current_session():
+    if os.path.exists(SESSION_FILE):
+        os.remove(SESSION_FILE)
+
+
+def parse_session_datetime(session_name: str):
+    """Extract datetime from 'YYYY-mm-dd HH:MM:SS | Title'. Fallback to datetime.min."""
+    try:
+        prefix = session_name.split(" | ")[0].strip()
+        return datetime.strptime(prefix, DT_TS_FMT)
+    except Exception:
+        return datetime.min
 
 
 # ---------------- Routes ---------------- #
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
-    rows = read_rows()
-    last_weights = {r["exercise"]: r["weight"] for r in rows}
+    current_session = get_current_session()
+    return render_template("index.html", current_session=current_session)
 
-    if request.method == "POST":
-        exercise = request.form["exercise"].strip().title()
-        weights = request.form.getlist("weight[]")
-        reps_list = request.form.getlist("reps[]")
 
-        # Clean input
-        sets = []
-        for w, r in zip(weights, reps_list):
-            if w.strip() and r.strip():
-                try:
-                    sets.append((float(w), int(r)))
-                except ValueError:
-                    continue
+@app.route("/start_workout", methods=["POST"])
+def start_workout():
+    name = (request.form.get("session_name") or "").strip()
+    if not name:
+        return redirect(url_for("index"))
+    set_current_session(name)
+    return redirect(url_for("index"))
 
-        if not sets:
-            return render_template("index.html", message="Please enter at least one valid set.", last_weights=last_weights)
 
-        # Log timestamp for session
-        now = datetime.now()
-        session_ts_str = now.strftime(DT_FMT)
+@app.route("/end_workout")
+def end_workout():
+    clear_current_session()
+    return redirect(url_for("index"))
 
-        # Write all sets
-        with open(FILENAME, "a", newline="") as f:
-            writer = csv.writer(f)
-            for w, r in sets:
-                writer.writerow([session_ts_str, exercise, w, r])
 
-        # Re-read after writing
-        all_rows = read_rows()
-        current_session_ts = datetime.strptime(session_ts_str, DT_FMT)
-        target_reps = get_target_reps(exercise)
+@app.route("/log", methods=["POST"])
+def log_workout():
+    # MUST have an active session
+    current_session = get_current_session()
+    if not current_session:
+        return render_template("index.html", message="⚠️ Start a workout first!")
 
-        # --- Progressive Overload Logic ---
-        avg_reps = sum(r for _, r in sets) / len(sets)
-        curr_top = max(w for w, _ in sets)
-        prev_ts = find_previous_session_ts(all_rows, exercise, current_session_ts)
-        prev_top = group_session_top_weight(all_rows, exercise, prev_ts) if prev_ts else None
+    exercise = request.form["exercise"].strip().title()
+    weights = request.form.getlist("weight[]")
+    reps_list = request.form.getlist("reps[]")
 
-        if avg_reps >= target_reps:
-            suggested = round_to_step(curr_top * 1.025, 0.5)
-            message = (
-                f"🔥 Solid work! Your average reps were {avg_reps:.1f}. "
-                f"Consider moving from {curr_top:g} kg → {suggested:g} kg next session."
-            )
-        elif avg_reps >= target_reps * 0.8:
-            message = (
-                f"💪 Almost there! Average reps: {avg_reps:.1f} (target {target_reps}). "
-                f"Stay at {curr_top:g} kg until you consistently hit {target_reps}."
-            )
-        else:
-            lighter = round_to_step(curr_top * 0.95, 0.5)
-            message = (
-                f"⚠️ Average reps were {avg_reps:.1f}, well below target {target_reps}. "
-                f"Consider lowering to {lighter:g} kg next session to refine form."
-            )
+    # Clean/validate the sets
+    sets = []
+    for w, r in zip(weights, reps_list):
+        if str(w).strip() and str(r).strip():
+            try:
+                sets.append((float(w), int(r)))
+            except ValueError:
+                continue
 
-        return render_template("index.html", message=message, last_weights=last_weights)
+    if not sets:
+        return render_template("index.html", message="Please enter at least one valid set.", current_session=current_session)
 
-    return render_template("index.html", last_weights=last_weights)
+    # Write rows with a proper timestamp per set (same minute/second is fine)
+    now_str = datetime.now().strftime(DT_TS_FMT)
+    with open(FILENAME, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        for w, r in sets:
+            writer.writerow([now_str, current_session, exercise, w, r])
+
+    return render_template("index.html", message=f"✅ Logged {exercise}!", current_session=current_session)
 
 
 @app.route("/history")
 def history():
-    data = []
-    hours = request.args.get("hours", None)
+    rows = read_rows()
+    if not rows:
+        return render_template("history.html", sessions=[])
 
-    if not os.path.exists(FILENAME):
-        return render_template("history.html", grouped_data=[], hours=hours)
+    # Group rows by session -> exercise -> sets
+    sessions = {}
+    for r in rows:
+        sname = r["session"]
+        sessions.setdefault(sname, {})
+        sessions[sname].setdefault(r["exercise"], []).append((r["weight"], r["reps"]))
 
-    try:
-        with open(FILENAME, "r", newline="") as file:
-            reader = csv.reader(file)
-            for row in reader:
-                if len(row) < 4:
-                    continue
-                date_str, exercise, weight, reps = row[:4]
-                try:
-                    date_obj = datetime.strptime(date_str.strip(), DT_FMT)
-                    weight = float(weight)
-                    reps = int(reps)
+    # Sort sessions by their datetime prefix (newest first)
+    sorted_sessions = sorted(
+        sessions.items(),
+        key=lambda x: parse_session_datetime(x[0]),
+        reverse=True
+    )
 
-                    if hours:
-                        cutoff = datetime.now() - timedelta(hours=float(hours))
-                        if date_obj < cutoff:
-                            continue
-
-                    data.append({
-                        "date": date_obj.strftime("%Y-%m-%d"),
-                        "datetime": date_obj,
-                        "exercise": exercise.strip(),
-                        "weight": weight,
-                        "reps": reps,
-                    })
-                except Exception:
-                    continue
-
-        # Sort by actual datetime (most recent first)
-        data.sort(key=lambda x: x["datetime"], reverse=True)
-
-        # Group by exercise and date
-        grouped = {}
-        for entry in data:
-            key = (entry["exercise"], entry["date"])
-            grouped.setdefault(key, []).append((entry["weight"], entry["reps"]))
-
-        grouped_data = [
-            {"exercise": ex, "date": dt, "sets": sets}
-            for (ex, dt), sets in grouped.items()
-        ]
-
-        # Sort groups by actual date (descending)
-        grouped_data.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d"), reverse=True)
-
-    except FileNotFoundError:
-        grouped_data = []
-
-    return render_template("history.html", grouped_data=grouped_data, hours=hours)
+    return render_template("history.html", sessions=sorted_sessions)
 
 
-# ---------------- Main ---------------- #
+# Allow spaces and symbols in the session name part of the URL
+@app.route("/session/<path:session_name>")
+def view_session(session_name):
+    session_name = unquote(session_name)
+    rows = read_rows()
+    data = [r for r in rows if r["session"] == session_name]
+    exercises = {}
+    for r in data:
+        exercises.setdefault(r["exercise"], []).append((r["weight"], r["reps"]))
+    return render_template("session.html", session_name=session_name, exercises=exercises)
+
 
 if __name__ == "__main__":
     app.run(debug=True)
