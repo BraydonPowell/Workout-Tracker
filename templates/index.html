@@ -1,28 +1,180 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Workout Tracker</title>
-    <style>
-        body { font-family: Arial; background: #0f0f0f; color: white; text-align: center; padding: 30px; }
-        input, button { padding: 10px; margin: 5px; border-radius: 5px; }
-        button { background: #16a34a; color: white; border: none; cursor: pointer; }
-        button:hover { background: #22c55e; }
-        .message { margin-top: 20px; font-size: 1.2em; }
-        a { color: #60a5fa; text-decoration: none; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workout Logger</title>
+  <style>
+    body {
+      background: linear-gradient(180deg, #0d1117, #0a0d12);
+      color: #fff;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 2rem;
+      letter-spacing: 1px;
+      margin-bottom: 25px;
+      text-transform: uppercase;
+      color: #00b7ff;
+    }
+
+    form {
+      background: #161b22;
+      padding: 25px;
+      border-radius: 15px;
+      width: 90%;
+      max-width: 600px;
+      box-shadow: 0 0 20px rgba(0, 183, 255, 0.1);
+    }
+
+    label {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      margin-bottom: 15px;
+      background: #0f141b;
+      color: white;
+      text-align: center;
+    }
+
+    .set-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .set-row input {
+      flex: 1;
+    }
+
+    .btn {
+      background: linear-gradient(90deg, #f97316, #06b6d4);
+      border: none;
+      color: white;
+      padding: 12px 25px;
+      border-radius: 25px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: 0.3s;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      transform: scale(1.05);
+    }
+
+    #last-weight {
+      font-size: 0.95rem;
+      color: #00b7ff;
+      margin-top: -5px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    .message {
+      margin-top: 20px;
+      font-size: 1.1rem;
+      text-align: center;
+      color: #f97316;
+    }
+
+    footer {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      background: #0f141b;
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    footer a {
+      color: #00b7ff;
+      text-decoration: none;
+      font-size: 1.1rem;
+      transition: 0.2s;
+    }
+
+    footer a:hover {
+      color: #f97316;
+    }
+  </style>
 </head>
+
 <body>
-    <h1>🏋️ Workout Tracker</h1>
-    <form action="/log" method="POST">
-        <input type="text" name="exercise" placeholder="Exercise" required><br>
-        <input type="number" name="weight" placeholder="Weight (lbs)" step="0.5" required><br>
-        <input type="number" name="reps" placeholder="Reps" required><br>
-        <input type="number" name="sets" placeholder="Sets" required><br>
-        <button type="submit">Log Workout</button>
-    </form>
+  <h1>Log Workout</h1>
 
-    <div class="message">{{ message }}</div>
+  <form method="POST" id="workout-form">
+    <label>Exercise</label>
+    <input type="text" name="exercise" id="exercise" placeholder="e.g. Bench Press" list="exerciseList" required>
+    <datalist id="exerciseList">
+      {% for ex in last_weights.keys() %}
+        <option value="{{ ex }}">
+      {% endfor %}
+    </datalist>
 
-    <p><a href="/history">View History</a></p>
+    <div id="last-weight"></div>
+
+    <div id="sets-container">
+      <div class="set-row">
+        <input type="number" name="weight[]" placeholder="Weight (lbs)" step="0.5" required>
+        <input type="number" name="reps[]" placeholder="Reps" required>
+      </div>
+    </div>
+
+    <button type="button" class="btn" id="add-set">+ Add Set</button>
+    <button type="submit" class="btn">Save Workout</button>
+
+    {% if message %}
+      <div class="message">{{ message }}</div>
+    {% endif %}
+  </form>
+
+  <footer>
+    <a href="/">🏠 Home</a>
+    <a href="/history">📊 History</a>
+  </footer>
+
+  <script>
+    const addSetBtn = document.getElementById("add-set");
+    const setsContainer = document.getElementById("sets-container");
+    const exerciseInput = document.getElementById("exercise");
+    const lastWeightDiv = document.getElementById("last-weight");
+    const lastWeights = {{ last_weights | tojson }};
+
+    addSetBtn.addEventListener("click", () => {
+      const row = document.createElement("div");
+      row.classList.add("set-row");
+      row.innerHTML = `
+        <input type="number" name="weight[]" placeholder="Weight (lbs)" step="0.5" required>
+        <input type="number" name="reps[]" placeholder="Reps" required>
+      `;
+      setsContainer.appendChild(row);
+    });
+
+    exerciseInput.addEventListener("input", () => {
+      const name = exerciseInput.value.trim();
+      if (lastWeights[name]) {
+        lastWeightDiv.innerHTML = `Last used weight: <strong>${lastWeights[name]} lbs</strong>`;
+      } else {
+        lastWeightDiv.innerHTML = "";
+      }
+    });
+  </script>
 </body>
 </html>
