@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Workout History</title>
+    <style>
+        body { font-family: Arial; background: #0f0f0f; color: white; text-align: center; padding: 30px; }
+        table { margin: auto; border-collapse: collapse; width: 80%; }
+        th, td { padding: 10px; border-bottom: 1px solid #333; }
+        a { color: #60a5fa; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <h1>📜 Workout History</h1>
+    <table>
+        <tr><th>Date</th><th>Exercise</th><th>Weight</th><th>Reps</th></tr>
+        {% for row in data %}
+            <tr>
+                <td>{{ row[0] }}</td>
+                <td>{{ row[1] }}</td>
+                <td>{{ row[2] }}</td>
+                <td>{{ row[3] }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+    <p><a href="/">⬅ Back to Tracker</a></p>
+</body>
+</html>

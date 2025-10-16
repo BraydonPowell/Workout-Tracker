@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Workout Tracker</title>
+    <style>
+        body { font-family: Arial; background: #0f0f0f; color: white; text-align: center; padding: 30px; }
+        input, button { padding: 10px; margin: 5px; border-radius: 5px; }
+        button { background: #16a34a; color: white; border: none; cursor: pointer; }
+        button:hover { background: #22c55e; }
+        .message { margin-top: 20px; font-size: 1.2em; }
+        a { color: #60a5fa; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <h1>🏋️ Workout Tracker</h1>
+    <form action="/log" method="POST">
+        <input type="text" name="exercise" placeholder="Exercise" required><br>
+        <input type="number" name="weight" placeholder="Weight (lbs)" step="0.5" required><br>
+        <input type="number" name="reps" placeholder="Reps" required><br>
+        <input type="number" name="sets" placeholder="Sets" required><br>
+        <button type="submit">Log Workout</button>
+    </form>
+
+    <div class="message">{{ message }}</div>
+
+    <p><a href="/history">View History</a></p>
+</body>
+</html>
